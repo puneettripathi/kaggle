@@ -9,6 +9,7 @@ library(caTools)
 library(plyr) #data wrangling
 library(dplyr) #data wrangling
 
+setwd("D:/pgdds/kaggle/titanic")
 ##### reading titanic dataset #####
 titanic = read.csv("train.csv", stringsAsFactors = F)
 
@@ -83,7 +84,7 @@ titanic$Pclass = factor(titanic$Pclass)
 str(titanic)
 
 
-factor_var <- c("Sex", "Title", "Embarked", "traveling_alone", "CabinAvl", "Pclass")
+factor_var <- c("Sex", "Title", "Embarked", "traveling_alone", "CabinAvl", "Pclass", "is_Adult")
 dummy_input <- titanic[,factor_var]
 num_input <- titanic[,! colnames(titanic) %in% factor_var]
 
@@ -95,13 +96,67 @@ dummies <- data.frame(sapply(titanic,
 master <- cbind(num_input,dummies)
 
 # Create train test
-set.seed(100)
+set.seed(7)
 
-indices = sample.split(master$Survived, SplitRatio = 0.7)
+#indices = sample.split(master$Survived, SplitRatio = 0.8)
 
-train = master[indices,]
+train = master
 
-test = master[!(indices),]
+test = read.csv('test.csv')
+test$family_size <- test$SibSp+test$Parch
+
+test$fare_per_person <- test$Fare/(test$family_size + 1)
+
+test$traveling_alone <- ifelse(test$family_size == 0, 'Yes', 'No')
+
+# Treating Missing Values 
+cols_with_na <- colnames(test)[colSums(is.na(test)) > 0]
+
+test$Age[is.na(test$Age)] <- median(test$Age, na.rm = TRUE)
+
+test$Embarked[is.na(test$Embarked)] <- 'S'
+
+test$CabinAvl <- ifelse(test$Cabin == "", "No", "Yes")
+
+test$Title <- gsub('(.*, )|(\\..*)', '', test$Name)
+VIP <- c("Capt","Col","Don","Dona","Dr","Jonkheer","Lady","Major",
+         "Mlle", "Mme","Rev","Sir","the Countess")
+
+test$Title[test$Title %in% VIP] <- "VIP"
+
+
+test$is_Adult <- ifelse(test$Age <= 18, "No", "Yes")
+
+# Creating ticketSize
+test <- ddply(test,.(Ticket),transform,Ticketsize=length(Ticket))
+
+str(test)
+test$Age <- scale(test$Age)
+test$fare_per_person = scale(test$fare_per_person)
+
+cor(test$Fare, test$fare_per_person)
+
+
+# Removing columns which are not needed
+test <- test[, !(colnames(test) %in% c('Name', 'Cabin', 'Fare', 'Ticket', 'SibSp', 'Parch'))]
+
+# Convert categorical columns to factor
+test$Pclass = factor(test$Pclass)
+
+str(test)
+
+
+factor_var <- c("Sex", "Title", "Embarked", "traveling_alone", "CabinAvl", "Pclass", "is_Adult")
+dummy_input <- test[,factor_var]
+num_input <- test[,! colnames(test) %in% factor_var]
+
+#creating dummy vairable
+dummies <- data.frame(sapply(dummy_input, 
+                             function(x) data.frame(model.matrix(~x-1,data = dummy_input))[,-1]))
+
+# column bind dummies and num_input
+testf <- cbind(num_input,dummies)
+
 
 # Logistic Regression: 
 
@@ -119,17 +174,17 @@ summary(model_2)
 # Removing multicollinearity through VIF check
 vif(model_2)
 
-model_3 <- glm(formula = Survived ~ Age + family_size + Ticketsize + Pclass.x2 + 
-                Pclass.x3 + Embarked.xS + traveling_alone + Title.xMiss + 
-                Title.xMr + Title.xMrs + Title.xVIP, family = "binomial", 
-              data = train)
+model_3 <- glm(formula = Survived ~ Age + family_size + fare_per_person + 
+                 Pclass.x3 + Embarked.xS + CabinAvl + Title.xMiss + 
+                 Title.xMr + Title.xMrs + Title.xVIP, family = "binomial", 
+               data = train)
 summary(model_3)
 
 # Removing multicollinearity through VIF check
 vif(model_3)
 
-model_4 <- glm(formula = Survived ~ Age + family_size + Ticketsize + Pclass.x2 + 
-                 Pclass.x3 + Embarked.xS + traveling_alone + 
+model_4 <- glm(formula = Survived ~ Age + family_size + fare_per_person + 
+                 Pclass.x3 + Embarked.xS + CabinAvl +
                  Title.xMr + Title.xMrs + Title.xVIP, family = "binomial", 
                data = train)
 summary(model_4)
@@ -137,34 +192,15 @@ summary(model_4)
 # Removing multicollinearity through VIF check
 vif(model_4)
 
-model_5 <- glm(formula = Survived ~ Age + family_size + Ticketsize + Pclass.x2 + 
-                 Pclass.x3 + Embarked.xS +  
+model_5 <- glm(formula = Survived ~ Age + family_size + 
+                 Pclass.x3 + Embarked.xS + CabinAvl +
                  Title.xMr + Title.xMrs + Title.xVIP, family = "binomial", 
                data = train)
 summary(model_5)
 
-# Removing multicollinearity through VIF check
-vif(model_5)
-
-model_6 <- glm(formula = Survived ~ Age + family_size + Pclass.x2 + 
-                 Pclass.x3 + Embarked.xS +  
-                 Title.xMr + Title.xMrs + Title.xVIP, family = "binomial", 
-               data = train)
-summary(model_6)
-
-model_7 <- glm(formula = Survived ~ Age + family_size + Pclass.x2 + 
-                 Pclass.x3 + Embarked.xS +  
-                 Title.xMr + Title.xVIP, family = "binomial", 
-               data = train)
-summary(model_7)
-
-model_8 <- glm(formula = Survived ~ Age + family_size + Pclass.x2 + 
-                 Pclass.x3 + Title.xMr + Title.xVIP, family = "binomial", 
-               data = train)
-summary(model_8)
 
 # final model
-final_model<- model_6
+final_model<- model_5
 
 #######################################################################
 
@@ -175,7 +211,7 @@ final_model<- model_6
 #predicted probabilities of Churn 1 for test data
 
 test_pred = predict(final_model, type = "response", 
-                    newdata = test[,-1])
+                    newdata = testf)
 
 
 # Let's see the summary 
@@ -234,7 +270,7 @@ legend(0,.50,col=c(2,"darkgreen",4,"darkred"),lwd=c(2,2,2,2),c("Sensitivity","Sp
 cutoff <- s[which(abs(OUT[,1]-OUT[,2])<0.01)]
 cutoff
 
-test_cutoff_survived <- factor(ifelse(test_pred >=0.3850505, "Yes", "No"))
+test_cutoff_survived <- factor(ifelse(test_pred >=0.4, "1", "0"))
 
 conf_final <- confusionMatrix(test_cutoff_survived, test_actual_survived, positive = "Yes")
 
@@ -249,3 +285,9 @@ acc
 sens
 
 spec
+
+test_cutoff_survived <- factor(ifelse(test_pred >=0.64, "1", "0"))
+submission = data.frame(testf$PassengerId,test_cutoff_survived)
+colnames(submission) <- c("PassengerId", "Survived")
+write.csv(submission, "submission.csv", row.names = FALSE)
+
